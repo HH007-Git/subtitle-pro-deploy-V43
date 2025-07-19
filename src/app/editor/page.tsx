@@ -347,29 +347,53 @@ export default function EditorPage() {
     setIsDragOver(false);
   }, []);
 
-  // Vercel Blob upload for large files using @vercel/blob client
+  // Server-side Blob upload for large files
   const uploadToBlob = useCallback(async (file: File): Promise<string> => {
     try {
       console.log(`🔄 Starting blob upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
 
-      // Import Vercel Blob client
-      const { upload } = await import('@vercel/blob/client');
-
-      // Upload with basic progress simulation
       setUploadProgress(10);
       setRecognitionStatus(`⬆️ Starting upload... (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
 
-      const blob = await upload(file.name, file, {
-        access: 'public',
-        handleUploadUrl: '/api/upload',
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('file', file);
+
+      setUploadProgress(30);
+
+      // Upload to our server-side API
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
       });
 
+      setUploadProgress(80);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Upload failed with status ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Upload failed');
+      }
+
       setUploadProgress(100);
-      setRecognitionStatus(`✅ Upload completed: ${blob.url}`);
-      console.log(`✅ Blob upload completed: ${blob.url}`);
-      return blob.url;
+      setRecognitionStatus(`✅ Upload completed: ${result.url}`);
+      console.log(`✅ Blob upload completed: ${result.url}`);
+      return result.url;
     } catch (error) {
       console.error('❌ Blob upload error:', error);
+
+      // Handle specific error types
+      if (error instanceof Error) {
+        if (error.message.includes('Blob storage not configured')) {
+          throw new Error('Cloud storage not available. Please try with smaller files or contact support.');
+        }
+      }
+
       throw new Error(`Blob upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }, []);

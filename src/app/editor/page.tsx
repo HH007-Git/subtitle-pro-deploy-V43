@@ -347,50 +347,50 @@ export default function EditorPage() {
     setIsDragOver(false);
   }, []);
 
-  // Server-side Blob upload for large files
+  // Vercel Blob client-side upload for large files (bypasses serverless size limits)
   const uploadToBlob = useCallback(async (file: File): Promise<string> => {
     try {
-      console.log(`🔄 Starting blob upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      console.log(`🔄 Starting Vercel Blob client upload for ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
 
       setUploadProgress(10);
-      setRecognitionStatus(`⬆️ Starting upload... (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      setRecognitionStatus(`⬆️ Uploading directly to cloud storage... (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
 
-      // Create FormData for file upload
-      const formData = new FormData();
-      formData.append('file', file);
+      // Import Vercel Blob client for direct upload (bypasses API route size limits)
+      const { upload } = await import('@vercel/blob/client');
 
-      setUploadProgress(30);
+      setUploadProgress(20);
 
-      // Upload to our server-side API
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
+      // Direct client-side upload to Vercel Blob
+      const blob = await upload(file.name, file, {
+        access: 'public',
+        handleUploadUrl: '/api/upload',
       });
 
-      setUploadProgress(80);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Upload failed with status ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || 'Upload failed');
+      // Simulate progress since Vercel Blob doesn't provide real-time progress
+      const progressSteps = [30, 50, 70, 90];
+      for (const step of progressSteps) {
+        setUploadProgress(step);
+        setRecognitionStatus(`⬆️ Uploading to cloud... ${step}%`);
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
 
       setUploadProgress(100);
-      setRecognitionStatus(`✅ Upload completed: ${result.url}`);
-      console.log(`✅ Blob upload completed: ${result.url}`);
-      return result.url;
+      setRecognitionStatus(`✅ Upload completed: ${blob.url}`);
+      console.log(`✅ Vercel Blob client upload completed: ${blob.url}`);
+      return blob.url;
     } catch (error) {
-      console.error('❌ Blob upload error:', error);
+      console.error('❌ Vercel Blob upload error:', error);
 
       // Handle specific error types
       if (error instanceof Error) {
-        if (error.message.includes('Blob storage not configured')) {
-          throw new Error('Cloud storage not available. Please try with smaller files or contact support.');
+        if (error.message.includes('token') || error.message.includes('auth') || error.message.includes('BLOB_READ_WRITE_TOKEN')) {
+          throw new Error('Cloud storage authentication failed. Please check Vercel Blob configuration in dashboard.');
+        }
+        if (error.message.includes('size') || error.message.includes('large')) {
+          throw new Error('File too large for cloud storage. Please try with a smaller file (under 500MB).');
+        }
+        if (error.message.includes('network') || error.message.includes('timeout')) {
+          throw new Error('Upload timeout. Please check your internet connection and try again.');
         }
       }
 

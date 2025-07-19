@@ -1,76 +1,75 @@
-import { put } from '@vercel/blob';
+import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { NextRequest } from 'next/server';
 
 export async function POST(request: NextRequest): Promise<Response> {
   try {
-    // Get form data from the request
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
+    // This endpoint handles Vercel Blob client upload tokens, not direct file uploads
+    console.log('🔐 Handling Vercel Blob upload token request');
 
-    if (!file) {
-      return Response.json(
-        { error: 'No file provided' },
-        { status: 400 }
-      );
-    }
+    const body = (await request.json()) as HandleUploadBody;
 
-    console.log(`🔄 Uploading file: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+    const jsonResponse = await handleUpload({
+      body,
+      request,
+      onBeforeGenerateToken: async (pathname, clientPayload) => {
+        console.log('🔐 Generating upload token for:', pathname);
 
-    // Validate file size (500MB limit)
-    if (file.size > 500 * 1024 * 1024) {
-      return Response.json(
-        { error: 'File too large. Maximum size is 500MB.' },
-        { status: 413 }
-      );
-    }
+        // Validate file type from pathname
+        const allowedExtensions = [
+          '.mp4', '.avi', '.mov', '.mkv', '.webm', '.wmv', '.flv',
+          '.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.wma'
+        ];
 
-    // Validate file type
-    const allowedTypes = [
-      'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/webm',
-      'audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/x-m4a', 'audio/flac'
-    ];
+        const fileExtension = pathname.split('.').pop()?.toLowerCase();
+        if (!fileExtension || !allowedExtensions.includes(`.${fileExtension}`)) {
+          throw new Error(`Unsupported file type: .${fileExtension}`);
+        }
 
-    if (!allowedTypes.includes(file.type)) {
-      return Response.json(
-        { error: `Unsupported file type: ${file.type}` },
-        { status: 400 }
-      );
-    }
-
-    // Upload to Vercel Blob using server-side API
-    const blob = await put(file.name, file, {
-      access: 'public',
+        return {
+          allowedContentTypes: [
+            'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/webm',
+            'video/x-ms-wmv', 'video/x-flv',
+            'audio/mpeg', 'audio/wav', 'audio/flac', 'audio/aac', 'audio/ogg',
+            'audio/x-m4a', 'audio/x-ms-wma'
+          ],
+          maximumSizeInBytes: 500 * 1024 * 1024, // 500MB limit
+        };
+      },
+      onUploadCompleted: async ({ blob, tokenPayload }) => {
+        console.log('✅ Vercel Blob upload completed:', blob.url);
+        console.log('📊 Blob pathname:', blob.pathname);
+      },
     });
 
-    console.log(`✅ Blob upload completed: ${blob.url}`);
-
-    return Response.json({
-      success: true,
-      url: blob.url,
-      size: file.size,
-      type: file.type,
-      filename: file.name
-    });
-
+    return Response.json(jsonResponse);
   } catch (error) {
-    console.error('❌ Upload handler error:', error);
+    console.error('❌ Vercel Blob upload handler error:', error);
 
-    // Handle specific Vercel Blob errors
     if (error instanceof Error) {
       if (error.message.includes('token') || error.message.includes('auth')) {
         return Response.json(
           {
-            error: 'Blob storage not configured. Please check Vercel Blob settings.',
-            details: 'Contact administrator to enable Vercel Blob storage.'
+            error: 'Blob storage authentication failed',
+            details: 'Vercel Blob storage is not properly configured.'
           },
           { status: 503 }
+        );
+      }
+
+      if (error.message.includes('Unsupported file type')) {
+        return Response.json(
+          {
+            error: error.message,
+            details: 'Please upload video (MP4, AVI, MOV, etc.) or audio (MP3, WAV, FLAC, etc.) files only.'
+          },
+          { status: 400 }
         );
       }
     }
 
     return Response.json(
       {
-        error: 'Upload failed',
+        error: 'Upload token generation failed',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
